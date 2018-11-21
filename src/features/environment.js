@@ -19,7 +19,7 @@ import {$needsRender, $onModelLoad, $renderer, $scene, $tick} from '../model-vie
 const DEFAULT_BACKGROUND_COLOR = '#ffffff';
 const GAMMA_TO_LINEAR = 2.2;
 
-const $currentCubemap = Symbol('currentCubemap');
+const $currentEnvMap = Symbol('currentEnvMap');
 const $setEnvironmentImage = Symbol('setEnvironmentImage');
 const $setEnvironmentColor = Symbol('setEnvironmentColor');
 const $hasBackgroundImage = Symbol('hasBackgroundImage');
@@ -72,17 +72,11 @@ export const EnvironmentMixin = (ModelViewerElement) => {
       }
     }
 
-    [$tick](time, delta) {
-      super[$tick](time, delta);
-      const camera = this[$scene].getCamera();
-      this[$scene].skysphere.position.copy(camera.position);
-    }
-
     [$onModelLoad](e) {
       super[$onModelLoad](e);
 
-      if (this[$currentCubemap]) {
-        this[$scene].model.applyEnvironmentMap(this[$currentCubemap]);
+      if (this[$currentEnvMap]) {
+        this[$scene].model.applyEnvironmentMap(this[$currentEnvMap]);
         this[$needsRender]();
       }
     }
@@ -92,7 +86,7 @@ export const EnvironmentMixin = (ModelViewerElement) => {
      */
     async [$setEnvironmentImage](url) {
       const textureUtils = this[$renderer].textureUtils;
-      const textures = await textureUtils.toCubemapAndEquirect(url);
+      const textures = await textureUtils.generateEnvironmentTextures(url);
 
       // If the background image has changed
       // while fetching textures, abort and defer to that
@@ -110,13 +104,11 @@ export const EnvironmentMixin = (ModelViewerElement) => {
         return;
       }
 
-      const { cubemap, equirect } = textures;
+      const { skybox, envmap } = textures;
 
-      this[$scene].skysphere.material.color = new Color(0xffffff);
-      this[$scene].skysphere.material.map = equirect;
-      this[$scene].skysphere.material.needsUpdate = true;
-      this[$currentCubemap] = cubemap;
-      this[$scene].model.applyEnvironmentMap(cubemap);
+      this[$scene].background = skybox;
+      this[$currentEnvMap] = envmap;
+      this[$scene].model.applyEnvironmentMap(envmap);
 
       this[$needsRender]();
     }
@@ -129,28 +121,25 @@ export const EnvironmentMixin = (ModelViewerElement) => {
 
       this[$deallocateTextures]();
 
-      this[$scene].skysphere.material.color = new Color(color);
-      this[$scene].skysphere.material.color.convertGammaToLinear(
-          GAMMA_TO_LINEAR);
-      this[$scene].skysphere.material.map = null;
-      this[$scene].skysphere.material.needsUpdate = true;
+      this[$scene].background = new Color(color);
+      this[$scene].background.convertGammaToLinear(GAMMA_TO_LINEAR);
 
       // TODO can cache this per renderer and color
-      const cubemap = textureUtils.generateDefaultEnvMap();
-      this[$currentCubemap] = cubemap;
-      this[$scene].model.applyEnvironmentMap(this[$currentCubemap]);
+      const envmap = textureUtils.generateDefaultEnvMap();
+      this[$currentEnvMap] = envmap;
+      this[$scene].model.applyEnvironmentMap(this[$currentEnvMap]);
 
       this[$needsRender]();
     }
 
     [$deallocateTextures]() {
-      if (this[$scene].skysphere.material.map) {
-        this[$scene].skysphere.material.map.dispose();
-        this[$scene].skysphere.material.map = null;
+      const background = this[$scene].background;
+      if (background && background.dispose) {
+        background.dispose();
       }
-      if (this[$currentCubemap]) {
-        this[$currentCubemap].dispose();
-        this[$currentCubemap] = null;
+      if (this[$currentEnvMap]) {
+        this[$currentEnvMap].dispose();
+        this[$currentEnvMap] = null;
       }
     }
   }
